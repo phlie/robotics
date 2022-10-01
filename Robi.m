@@ -6,6 +6,7 @@ image = imread('environment.png');
 grayimage = rgb2gray(image);
 bwimage = grayimage < 0.5;
 
+% Size of the grid with the resolution
 xsize = 26.0;
 ysize = 21.0;
 mapRes = 20.0;
@@ -17,7 +18,7 @@ map = robotics.BinaryOccupancyGrid(bwimage);
 
 % For now, use the simpleMap but I can also use, map, the custom image
 sim = ExampleHelperRobotSimulator('complexMap');
-setRobotPose(sim, [3 1 0]);
+setRobotPose(sim, [3 1 0]);     % Set the starting location on the map
 sim.showTrajectory(true);
 
 % Enables the ROS server for the sim
@@ -48,18 +49,22 @@ axesHandle = axes('Parent', figureHandle);
 mapHandle = show(mapUnknown, 'Parent', axesHandle);
 title(axesHandle, 'OccupancyGrid: Update 0');
 
+% All the initilization of the variables code
 robotPose = [0 0 0];
 bump = 0;
 numBumps = 0;
 bumpToggle = false;
 startOcc = true;
 path = [];
+
+% The main loop that executes all of the robot code, doesn't reach the end
+
 for i = 1:250
     % Keep going for awhile
     startOcc = true;
     while(startOcc == true)
         updateCounter = 1;
-        whichWay = -1;
+        whichWay = -1;      % Start spinning to the left and then it will change
         while(updateCounter < 100 || bumpToggle == true)
             % Get the scan message
             scanMsg = receive(scanSub);
@@ -70,7 +75,7 @@ for i = 1:250
             % Convert robot pose to 1x3 vector [x y yaw]
             position = [pose.Transform.Translation.X, pose.Transform.Translation.Y];
             orientation = quat2eul([pose.Transform.Rotation.W, pose.Transform.Rotation.X, pose.Transform.Rotation.Y, pose.Transform.Rotation.Z], 'ZYX');
-            robotPose = [position, orientation(1)];
+            robotPose = [position, orientation(1)];     % Update the robot position and angle
             
             
             % Extract the laser scan
@@ -101,7 +106,7 @@ for i = 1:250
             % Send the velocity commands to the robot
             send(velPub, velMsg);
             
-            % Visulaize the map after every 50th update.
+            % Randomly change direction after the updateCounter reaches 50
             if ~mod(updateCounter, 50)
                 if (randi(2) == 1)
                     whichWay = -1;
@@ -110,6 +115,7 @@ for i = 1:250
                 end
             end
             
+            % Used to see if the robot has recently touched a wall
             if ~mod(updateCounter, 10)
                 if (numBumps > 0)
                     bumpToggle = true;
@@ -145,6 +151,8 @@ for i = 1:250
         %     end
         %     endLocation = [xRan, yRan]
         %     headToArray
+        
+        
         % Startup PRM for path finding
         prm = robotics.PRM;
         prm.Map = mapUnknown;
@@ -154,17 +162,25 @@ for i = 1:250
         prm.ConnectionDistance = 5;
         path = []
         occ = checkOccupancy(mapUnknown, robotPose(1:2))
+        
+        % If its current location is unknown or has an obstacle
         if (occ == 1 || occ == -1)
             startOcc = true;
+        % Else if it is currently in a free location, switch to PRM Mode
         else
             startOcc = false;
             guessingCounter = 1;
+            % If the path is empty, keep guessing untill it is stuck
             while (isempty(path) && guessingCounter < 10)
-                startLocation = position;
+                startLocation = position;       % The current robot position
+                % Finds the next location to use path planning to go to
                 locArray = FindNextLocation(mapUnknown, guessingCounter)
+                % Finds the furthest point in that square to head towards
                 endLocation = FindFarthestPoint(locArray, robotPose);
                 guessingCounter = guessingCounter + 1
                 distanceToEnd = norm(endLocation - startLocation)
+                % If the position that it finds is to far away or null,
+                % repeat the loop
                 if (endLocation == [0 0])
                     continue
                 elseif (15 < distanceToEnd)
@@ -174,6 +190,7 @@ for i = 1:250
                 path = findpath(prm, startLocation, endLocation)
                 prm.NumNodes = prm.NumNodes + 50;
             end
+            % If the guesses are maxed out, go into random exploration mode
             if (guessingCounter == 10)
                 startOcc = true;
             end
@@ -209,6 +226,7 @@ for i = 1:250
     distanceToGoal = norm(robotCurrentLocation - robotGoal);
     
     timeoutCounter = 1
+    % While not close to the goal and not timed out, repeat
     while( distanceToGoal > goalRadius && timeoutCounter < 250)
         % Computes the controller outputs, inputs to the robot
         [v, omega] = controller(sim.getRobotPose);
@@ -245,11 +263,14 @@ for i = 1:250
         
         timeoutCounter = timeoutCounter + 1;
         
+        % Every 10 timeslices update the map to show the robots current
+        % knowledge
         if ~mod(timeoutCounter,10)
             mapHandle.CData = occupancyMatrix(mapUnknown);
             title(axesHandle, ['OccupancyGrid: PRM ' num2str(timeoutCounter)]);
         end
         
+        % Wait for the robots next turn
         waitfor(controlRate);
     end
     controller = false;

@@ -1,6 +1,6 @@
 function [xyFar] = FindFarthestPoint(locationArray, robotPose)
-%FINDFARTHESTPOINT Summary of this function goes here
-%   Detailed explanation goes here
+
+% Gets the furthest point for the robot and its current location 
 for i = 1:3
     temp(i) = norm(locationArray(i,1:2) - robotPose(1:2));
 end
